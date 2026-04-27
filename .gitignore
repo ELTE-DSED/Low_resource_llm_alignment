@@ -7,4 +7,4 @@ PPO/*
 reward_models/*
 Evaluations/Generations/*
 Ground_truth_based_optimized_synthetic_generation_legacy.py
-
+.env
