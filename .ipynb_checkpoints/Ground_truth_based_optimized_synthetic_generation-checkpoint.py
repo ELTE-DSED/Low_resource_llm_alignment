@@ -130,10 +130,10 @@ TOKENS_ABSOLUTE_LENGTH_WEIGHT:  float = 0.1
 OUTPUT_VARIANCE_WEIGHT:         float = 0.1
 INPUT_GROUND_OVERLAP_WEIGHT:    float = 0.1
 MAX_DISTANCE:                   float = 0.25
-MIN_MARGIN:                     float = 0.05   # was undefined – set sensible default
+MIN_MARGIN:                     float = 0.05 
 INCLUDE_CATEGORICAL_LENGTH_DIFFERENCE: bool = True
 INCLUDE_ABSOLUTE_LENGTH: bool = True
-
+ALL_STRUCTURAL_DISTRIBUTION: bool = False
 
 
 
@@ -147,18 +147,23 @@ def set_global_weights(
     max_distance:                   float,
     include_categorical_length_difference: bool,
     include_absolute_length: bool,
+    activate_all_structural_distribution:bool,
 ) -> None:
     """Overwrite module-level constants from CLI args."""
+    
     global STRUCTURAL_DISTRIBUTION_WEIGHT, TOKENS_ABSOLUTE_LENGTH_WEIGHT
     global OUTPUT_VARIANCE_WEIGHT, INPUT_GROUND_OVERLAP_WEIGHT, MAX_DISTANCE
+    global INCLUDE_ABSOLUTE_LENGTH, ALL_STRUCTURAL_DISTRIBUTION, INCLUDE_CATEGORICAL_LENGTH_DIFFERENCE
+
+    
     STRUCTURAL_DISTRIBUTION_WEIGHT = structural_distribution_weight
     TOKENS_ABSOLUTE_LENGTH_WEIGHT  = tokens_absolute_length_weight
     OUTPUT_VARIANCE_WEIGHT         = output_variance_weight
     INPUT_GROUND_OVERLAP_WEIGHT    = input_ground_overlap_weight
     MAX_DISTANCE                   = max_distance
-    INCLUDE_CATEGORICAL_LENGTH_DIFFERENCE = include_categorical_length_difference,
-    INCLUDE_ABSOLUTE_LENGTH = include_absolute_length,
-
+    INCLUDE_CATEGORICAL_LENGTH_DIFFERENCE = include_categorical_length_difference
+    INCLUDE_ABSOLUTE_LENGTH = include_absolute_length
+    ALL_STRUCTURAL_DISTRIBUTION = activate_all_structural_distribution
 
 
 
@@ -187,6 +192,7 @@ def _compute_margin(
     print(f"pos_distance {pos_distance:.4f}, neg_distance {neg_distance:.4f}")
     # BUG FIX: was `margin < -min_margin` where min_margin was undefined
     return margin, margin < -MAX_DISTANCE, pos_distance, neg_distance
+
 
 
 
@@ -305,7 +311,8 @@ def validate_rule_based_info(
             
             rl = rule.lower()
 
-            if structural_class == "Prose":
+            if structural_class == "Prose" or ALL_STRUCTURAL_DISTRIBUTION and not structural_class == "Table":
+                print(f"Structural_class {structural_class} and ALL_STRUCTURAL_DISTRIBUTION {ALL_STRUCTURAL_DISTRIBUTION}")
                 distance = _pos_distance(calculate_distance(text, full_output, "Prose"))
                 if distance > max_distance_threshold or trivial:
                     return False, False, distance, 1.0
@@ -540,8 +547,6 @@ def append_result_to_jsonl(jsonl_path, idx, save_dict):
 
 
 
-# ---------------------------------------------------------------------------
-
 
 class GenerationQueueEntry:
     def __init__(self, idx, key, retries, prompt, original_prompt, revealed_output, structural_class,
@@ -604,8 +609,8 @@ def main(
     max_distance:                   float = MAX_DISTANCE,
     include_categorical_length_difference:float = INCLUDE_CATEGORICAL_LENGTH_DIFFERENCE,
     include_absolute_length:float = INCLUDE_ABSOLUTE_LENGTH,
+    activate_all_structural_distribution:bool = ALL_STRUCTURAL_DISTRIBUTION,
 ):
-    # Push CLI values into module-level constants so helpers pick them up
     
     set_global_weights(
         structural_distribution_weight,
@@ -615,6 +620,7 @@ def main(
         max_distance,
         include_categorical_length_difference = include_categorical_length_difference,
         include_absolute_length = include_absolute_length,
+        activate_all_structural_distribution = activate_all_structural_distribution,
     )
 
     args = Namespace(
@@ -634,42 +640,29 @@ def main(
         maxResamplingAttempts = maxResamplingAttempts,
         maxDistancePostive = maxDistancePositive,
         minDistanceNegative = minDistanceNegative,
-
     )
 
 
-
-    
-
-
-    ## Balancing data
-    
 
     from collections import defaultdict
     import random
     import json
     
-    ## Balancing data
     rng = random.Random(args.seed)
     
     with open(args.promptsFile, 'r', encoding='utf-8') as f:
         data = json.load(f)
     
-    # Step 1: group by class
     class_groups = defaultdict(list)
     
     for item in data:
         cls = item.get('class', 'Prose')
         if cls.lower() not in ["list"]:
-        # if cls.lower() not in ["table","list"]:
             class_groups[cls].append(item)
     
-    # Safety check (avoid crash if empty)
     if not class_groups:
         raise ValueError("No classes found after filtering.")
-    
-    # Step 2: find largest class size (target)
-    
+        
     max_size = max(len(v) for v in class_groups.values());
 
     max_size = min(max_size, 10000);

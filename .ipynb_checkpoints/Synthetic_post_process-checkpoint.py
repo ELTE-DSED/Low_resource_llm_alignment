@@ -30,7 +30,7 @@ _FIELDNAMES = [
 
 
 
-DEMONSTRATION_DISTANCE_THRESHOLD: float = 0.4
+DEMONSTRATION_DISTANCE_THRESHOLD: float = 0.35
 
 
 def _iter_records(in_path: Path, start_idx: int, end_idx: int):
@@ -203,7 +203,7 @@ def clean(
         
         chosen_is_verbatim   = row["chosen"]  in (row["instruction"], row["input"])
 
-        if swap and neg <= pos - min_margin and not rejected_is_verbatim and not str(row["rejected"]).strip() == str(row["chosen"]).strip() and not df.at[i, "contrastive_status"] = "Contrastive":
+        if swap and neg <= pos - min_margin and not rejected_is_verbatim and not str(row["rejected"]).strip() == str(row["chosen"]).strip() and not df.at[i, "contrastive_status"] == "Contrastive":
             df.at[i, "chosen"],            df.at[i, "rejected"]           = row["rejected"], row["chosen"]
             df.at[i, "positive_distance"], df.at[i, "negative_distance"]  = neg, pos
             df.at[i, "contrastive_status"] = "Contrastive"
@@ -390,6 +390,7 @@ def main(
     seed: int = 42,
     MaxPositiveDistance: int = 0.6,
     demonstration_based: bool = False,
+    min_margin:int = 0.25,
 ) -> None:
 
     random.seed(seed)
@@ -400,7 +401,7 @@ def main(
 
     df = clean(
         out_csv,
-        min_margin=0.25,
+        min_margin=min_margin,
         swap=True,
         MaxPositiveDistance=MaxPositiveDistance,
         demonstration_based=demonstration_based,

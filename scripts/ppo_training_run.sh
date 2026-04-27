@@ -13,7 +13,7 @@ python PPO_training_base.py \
     --principle_collection_path "prompts/Reward_model_dimensions/principle_collection_ppo.json" \
     --max_principles 3\
     --do_train True\
-    --total_epochs 1\
+    --total_epochs 4\
     --learning_rate 3e-6\
     --lr_scheduler_type "constant"\
     --warmup_steps 5\

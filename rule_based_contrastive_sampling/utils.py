@@ -1275,6 +1275,9 @@ def _weighted_distance(
 
 
 
+
+
+
 def calculate_structural_distance(text: str, reference_text: str, structural_class: str, presence_only: bool = False) -> float:
     
     if presence_only:

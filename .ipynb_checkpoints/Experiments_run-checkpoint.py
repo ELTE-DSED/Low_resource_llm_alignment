@@ -29,7 +29,7 @@ EVAL_BATCH_SIZE     = 16
 EVAL_BoN            = 3
 ALPACA_PROMPTS_FILE = "data/sampled_alpaca_with_ids&prose.json"
 BASE_INDICES        = "0-30000"
-POLICY_INDICES      = "0-20000"
+POLICY_INDICES      = "0-30000"
 
 
 
@@ -58,9 +58,6 @@ BASE_MU = np.array([
 
 
 def sample_weights(mu_vec, sigma=0.5):
-    """
-    Logistic-normal sampling on the simplex.
-    """
     z = np.random.normal(mu_vec, sigma)
     exp_z = np.exp(z)
     return exp_z / exp_z.sum()
@@ -71,23 +68,14 @@ def decreasing_dominance_weights(
         T=MAX_ITERS,
         sigma=0.2,
     ):
-    """
-    Returns a dictionary of weights for the current iteration.
 
-    Behaviour:
-    - Early iterations → strong hierarchy
-    - Late iterations → nearly uniform weights
-    """
 
-    # Annealing factor (dominance decay)
     alpha_t = 1 - current_t / T
 
-    # Shrink all dominance toward zero
     mu_t = alpha_t * BASE_MU
 
     w = sample_weights(mu_t, sigma)
 
-    # Map to named cues
     weight_dict = dict(zip(CUES, w))
 
     return weight_dict
@@ -109,12 +97,10 @@ def setup_logging(iteration: int | None = None) -> logging.Logger:
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
                             datefmt="%Y-%m-%d %H:%M:%S")
 
-    # Always-on run log
     run_fh = logging.FileHandler(LOG_DIR / f"run_{timestamp}.log")
     run_fh.setFormatter(fmt)
     logger.addHandler(run_fh)
 
-    # Per-iteration log (re-created each time setup_logging is called with an iter)
     if iteration is not None:
         iter_fh = logging.FileHandler(LOG_DIR / f"iteration_{iteration}.log")
         iter_fh.setFormatter(fmt)
@@ -248,6 +234,7 @@ def run_data_generation(
     maxDistancePositive: int,
     include_categorical_length_difference:bool,
     include_absolute_length: bool,
+    activate_all_structural_distribution: bool,
 ) -> None:
     base_flags = (
         ["--use_basemodel", "True", "--indices", BASE_INDICES]
@@ -269,6 +256,7 @@ def run_data_generation(
             "--maxDistancePositive",str(maxDistancePositive),
             "--include_categorical_length_difference",str(include_categorical_length_difference),
             "--include_absolute_length",str(include_absolute_length),
+            "--activate_all_structural_distribution", str(activate_all_structural_distribution),
             *base_flags,
         ],
         step_label=f"iter{i}/data_gen",
@@ -278,7 +266,7 @@ def run_data_generation(
 
 
     
-def run_post_processing(i: int, structural_classes_remove: list = None, maxDistancePositive: int = 0.9, demonstration_based: bool = False) -> None:
+def run_post_processing(i: int, structural_classes_remove: list = None, maxDistancePositive: int = 0.9, demonstration_based: bool = False, min_margin:int = 0.25) -> None:
     cmd = [
         "bash", "scripts/run_post_processing.sh",
         "--in_dir",         f"data/Synthetic_preference_data/curriculum_iteration_{i}/generated_preference_data.jsonl",
@@ -286,6 +274,7 @@ def run_post_processing(i: int, structural_classes_remove: list = None, maxDista
         "--merged_out_csv", f"data/Synthetic_preference_data/curriculum_iteration_{i}/curriculum_iteration_{i}_merged_balanced_generated_preference_data.csv",
         "--MaxPositiveDistance",str(maxDistancePositive),
         "--demonstration_based",str(demonstration_based),
+        "--min_margin", str(min_margin),
     ]
 
     if structural_classes_remove:
@@ -411,7 +400,7 @@ def main():
     start_iter = 4;
     
     for i in range(start_iter, MAX_ITERS):
-        # Refresh per-iteration log file
+        
         logger = setup_logging(i)
         logger.info(f"========== ITERATION {i} ==========")
 
@@ -435,7 +424,6 @@ def main():
             
         logger.info(f"Policy: {policy_model}  (base={is_base})")
 
-        ## Linear scheduling for Lambda_4 (reducing) for structural cues with respect with MAX_ITERS, current iteration_index.
         
         weights_dict = decreasing_dominance_weights(current_t = i, T=MAX_ITERS, sigma=0.2);
         print(f"========= Current iteration Structural cues {weights_dict}============ ");
@@ -446,25 +434,37 @@ def main():
             include_categorical_length_difference = False;
             include_absolute_length = False;
             seed = 42
-        elif i == 1:
+            max_distance = 0.25
+            activate_all_structural_distribution = False;
+            scheduling_type = "balanced";
+            demonstration_based = False;
+
+        elif i <=2:
             include_categorical_length_difference = True;
             include_absolute_length = False;
             maxDistancePositive = 0.5;
-            seed = 28
-            # seed = 42
+            activate_all_structural_distribution = False
+            seed = 42
+            max_distance = 0.25
+            scheduling_type = "balanced";
+            demonstration_based = False;
+
         else:
             include_categorical_length_difference = True;
-            include_absolute_length = False;
+            include_absolute_length = True;
+            activate_all_structural_distribution = True
             maxDistancePositive = 0.9;
             seed = 42
+            max_distance = 0.15;
+            scheduling_type = "balanced";
+            demonstration_based = True;
 
 
 
             
-        # ── Step 1: Data generation ──────────────────────────────────────
         if not step_already_done(state, i, "data_gen"):
             
-            run_data_generation(i,policy_model + "/adapter_model/lora_policy", is_base, structural_cues_weights = weights_dict, max_distance = 0.000001, maxDistancePositive = maxDistancePositive, include_categorical_length_difference = include_categorical_length_difference, include_absolute_length = include_absolute_length);
+            run_data_generation(i,policy_model + "/adapter_model/lora_policy", is_base, structural_cues_weights = weights_dict, max_distance = max_distance, maxDistancePositive = maxDistancePositive, include_categorical_length_difference = include_categorical_length_difference, include_absolute_length = include_absolute_length, activate_all_structural_distribution = activate_all_structural_distribution);
             save_state(i, "data_gen")
             state = load_state()
         else:
@@ -473,15 +473,11 @@ def main():
         check_shutdown()
 
 
-        
-        scheduling_type = "balanced";
-
         scheduling_weights = weighted_rl_scheduling.main(
             f"data/Synthetic_preference_data/curriculum_iteration_{i}/generated_preference_data.jsonl",
         )
         
         structural_classes_remove = [];
-        # structural_classes_remove = ['Table'];
         
         if scheduling_type  == "weighted":
             structural_classes_remove = structural_classes_remove + [k for k, v in scheduling_weights.items() if v == 0];
@@ -492,7 +488,7 @@ def main():
 
         
         if not step_already_done(state, i, "post_processing"):
-            run_post_processing(i, structural_classes_remove = structural_classes_remove, maxDistancePositive = maxDistancePositive, demonstration_based = True)
+            run_post_processing(i, structural_classes_remove = structural_classes_remove, maxDistancePositive = maxDistancePositive, demonstration_based = demonstration_based, min_margin = max_distance)
             save_state(i, "post_processing")
             state = load_state();
 
@@ -522,11 +518,8 @@ def main():
         output_file = f"data/curriculum_{i}_PPO_scheduled_{scheduling_type}_training_data.json";
         
         RL_data_creation_PPO.main(scheduling_type = scheduling_type, scheduling_weights = scheduling_weights, output_file = output_file,seed = seed, data_path = f"data/Synthetic_preference_data/curriculum_iteration_{i}/curriculum_iteration_{i}_generated_preference_data.csv",removed_class = "")
-        # RL_data_creation_PPO.main(scheduling_type = scheduling_type, scheduling_weights = scheduling_weights, output_file = output_file,seed = seed)
         
 
-        
-        # ── Step 4: PPO training ─────────────────────────────────────────
         if not step_already_done(state, i, "ppo"):
             
             if not ppo_output_exists(i):
@@ -552,16 +545,13 @@ def main():
             else:
                 eval_is_base = False
                 
-            # Run evaluation with BoN
             
             run_truthfulQA(i, selected_eval_checkpoint, eval_is_base);
             
             run_evaluation(i, selected_eval_checkpoint, eval_is_base,reward_model_path = "",greedy = True, BoN = 1);
             
-            # run_evaluation(i, selected_eval_checkpoint, eval_is_base,  reward_model_path = f"reward_models/reward_model_curriculum_iteration_{i}", greedy = False, BoN = EVAL_BoN);
+            run_evaluation(i, selected_eval_checkpoint, eval_is_base,  reward_model_path = f"reward_models/reward_model_curriculum_iteration_{i}", greedy = False, BoN = EVAL_BoN);
             
-            # Run evaluation with Greedy
-
             
             
             save_state(i, "eval")
