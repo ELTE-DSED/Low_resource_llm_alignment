@@ -1,7 +1,10 @@
-data/
-logs/
-PPO/
-reward_models/
-Evaluations/Generations/
+data/Synthetic_preference_data/*
+data/curriculum_*_PPO_scheduled_balanced_training_data.json
+data/curriculum_*_PPO_scheduled_weighted_training_data.json
+data/PPO_scheduled_training_data.json
+logs/*
+PPO/*
+reward_models/*
+Evaluations/Generations/*
 Ground_truth_based_optimized_synthetic_generation_legacy.py
 
