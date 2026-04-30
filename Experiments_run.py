@@ -30,7 +30,7 @@ SKIPPED_DATA        = 0
 EVAL_BATCH_SIZE     = 32
 EVAL_BoN            = 3
 ALPACA_PROMPTS_FILE = "data/sampled_alpaca_with_ids&prose.json"
-BASE_INDICES        = "0-30000"
+BASE_INDICES        = "0-30000" 
 POLICY_INDICES      = "0-30000"
 
 
@@ -173,24 +173,24 @@ def step_already_done(state: dict, iteration: int, step: str) -> bool:
 # SIGNAL HANDLING (SLURM / HPC)
 # =========================
 
-## Turn on if using an HPC
+# Turn on if using an HPC
 
-# _shutdown_requested = False
+_shutdown_requested = False
 
-# def _handle_signal(signum, frame):
-#     global _shutdown_requested
-#     sig_name = signal.Signals(signum).name
-#     logger.warning(f"Received signal {sig_name} — will exit cleanly after current step.")
-#     _shutdown_requested = True
+def _handle_signal(signum, frame):
+    global _shutdown_requested
+    sig_name = signal.Signals(signum).name
+    logger.warning(f"Received signal {sig_name} — will exit cleanly after current step.")
+    _shutdown_requested = True
 
-# signal.signal(signal.SIGTERM, _handle_signal)   # SLURM sends SIGTERM before killing
-# signal.signal(signal.SIGUSR1, _handle_signal)   # --signal USR1@<time> in sbatch
+signal.signal(signal.SIGTERM, _handle_signal)   # SLURM sends SIGTERM before killing
+signal.signal(signal.SIGUSR1, _handle_signal)   # --signal USR1@<time> in sbatch
 
 
-# def check_shutdown():
-#     if _shutdown_requested:
-#         logger.warning("Shutdown requested. Exiting gracefully.")
-#         sys.exit(0)
+def check_shutdown():
+    if _shutdown_requested:
+        logger.warning("Shutdown requested. Exiting gracefully.")
+        sys.exit(0)
 
 
 
