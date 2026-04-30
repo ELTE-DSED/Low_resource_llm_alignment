@@ -213,7 +213,6 @@ instruction,input,chosen,rejected,preference,contrastive_status,structural_class
 ### Proximal Policy Optimization Instability Fixes
 - Reduce learning rate (try 1e-6)
 - Lower KL coefficient (`--kl_coef 0.01`)
-- Check data quality with `--dry_run True`
 
 
 ## Citation
