@@ -30,7 +30,7 @@ _FIELDNAMES = [
 
 
 
-DEMONSTRATION_DISTANCE_THRESHOLD: float = 0.35
+DEMONSTRATION_DISTANCE_THRESHOLD: float = 0.3
 
 
 def _iter_records(in_path: Path, start_idx: int, end_idx: int):
@@ -324,7 +324,8 @@ def balance(df: pd.DataFrame, max_per_class: int = 1000, seed: int = 42, balanci
     df = df[df["structural_class"] != "List"]
     print(f"Removed {before - len(df)} rows with structural_class == 'list'")
 
-    list_variants = {"dashed-list", "numbered-list","comma-list"}
+    list_variants = {"dashed-list", "numbered-list"}
+    # list_variants = {"dashed-list", "numbered-list","comma-list"}
     df["structural_class"] = df["structural_class"].apply(
         lambda x: "list" if isinstance(x, str) and x.lower() in list_variants else x
     )

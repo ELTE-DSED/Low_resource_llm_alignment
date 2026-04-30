@@ -87,7 +87,8 @@ def select_curriculum_checkpoint(input_directory: str) -> str:
 
 
     for k in all_stats:
-        all_stats[k] = all_stats[k][:1000]
+        # all_stats[k] = all_stats[k][:2000]
+        all_stats[k] = all_stats[k][:4000]
 
     rewards     = _moving_average(np.array(all_stats["objective/rewards"],       dtype=float))
     kl          = _moving_average(np.array(all_stats["objective/kl_avg_seq"],    dtype=float))

@@ -30,7 +30,7 @@ python PPO_training_base.py \
     --logging_steps 25 \
     --report_to "none" \
     --eval_strategy "steps" \
-    --eval_steps 150 \
+    --eval_steps 100 \
     --do_eval False \
     --kl_coef 0.01 \
     --target_kl 6.0 \
@@ -54,7 +54,7 @@ python PPO_training_base.py \
     --reward_model_bits 4 \
     --penalty_reward_value -1.0 \
     --bonus_answer_NOANSWER_questions 0.0 \
-    --early_stop_penalty -0.5 \
+    --early_stop_penalty -1.0 \
     --whiten_rewards False \
     --whitening_async_stats "full_batch" \
     --init_value_with_reward True \

@@ -19,13 +19,15 @@ import RL_data_creation_PPO
 
 BASE_MODEL          = "meta-llama/Llama-3.2-3B"
 PPO_CHECKPOINT_DIR  = Path("PPO/PPO_Curriculum_Checkpoints")
+REWARD_MODELS_DIR = Path("reward_models");
+EVALUATION_GENERATIONS_DIR = Path("Evaluations/Generations");
 STATE_FILE          = Path("curriculum_state.json")   # tracks last completed iteration
 LOG_DIR             = Path("logs")
 MAX_ITERS           = 5
 STEP_BATCH_SIZE     = 1
 ROLLOUT_BATCH_SIZE  = 1
 SKIPPED_DATA        = 0
-EVAL_BATCH_SIZE     = 16
+EVAL_BATCH_SIZE     = 32
 EVAL_BoN            = 3
 ALPACA_PROMPTS_FILE = "data/sampled_alpaca_with_ids&prose.json"
 BASE_INDICES        = "0-30000"
@@ -82,9 +84,19 @@ def decreasing_dominance_weights(
 
 
 
+
+
+
+
 PPO_CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True);
 
 LOG_DIR.mkdir(parents=True, exist_ok=True);
+
+REWARD_MODELS_DIR.mkdir(parents=True, exist_ok=True);
+
+EVALUATION_GENERATIONS_DIR.mkdir(parents=True, exist_ok=True);
+
+
 
 
 def setup_logging(iteration: int | None = None) -> logging.Logger:
@@ -160,22 +172,25 @@ def step_already_done(state: dict, iteration: int, step: str) -> bool:
 # =========================
 # SIGNAL HANDLING (SLURM / HPC)
 # =========================
-_shutdown_requested = False
 
-def _handle_signal(signum, frame):
-    global _shutdown_requested
-    sig_name = signal.Signals(signum).name
-    logger.warning(f"Received signal {sig_name} — will exit cleanly after current step.")
-    _shutdown_requested = True
+## Turn on if using an HPC
 
-signal.signal(signal.SIGTERM, _handle_signal)   # SLURM sends SIGTERM before killing
-signal.signal(signal.SIGUSR1, _handle_signal)   # --signal USR1@<time> in sbatch
+# _shutdown_requested = False
+
+# def _handle_signal(signum, frame):
+#     global _shutdown_requested
+#     sig_name = signal.Signals(signum).name
+#     logger.warning(f"Received signal {sig_name} — will exit cleanly after current step.")
+#     _shutdown_requested = True
+
+# signal.signal(signal.SIGTERM, _handle_signal)   # SLURM sends SIGTERM before killing
+# signal.signal(signal.SIGUSR1, _handle_signal)   # --signal USR1@<time> in sbatch
 
 
-def check_shutdown():
-    if _shutdown_requested:
-        logger.warning("Shutdown requested. Exiting gracefully.")
-        sys.exit(0)
+# def check_shutdown():
+#     if _shutdown_requested:
+#         logger.warning("Shutdown requested. Exiting gracefully.")
+#         sys.exit(0)
 
 
 
@@ -201,17 +216,24 @@ def run_sh(cmd_list: list[str], step_label: str, retries: int = 1) -> None:
     raise RuntimeError(f"[{step_label}] failed after {retries} attempt(s)")
 
 
+
 def get_latest_checkpoint(i:int) -> str:
     ckpts = sorted(PPO_CHECKPOINT_DIR.glob(f"curriculum_iteration_{i}"))
     return str(ckpts[-1]) if ckpts else BASE_MODEL
+
+
 
 
 def reward_model_exists(iteration: int) -> bool:
     return Path(f"reward_models/reward_model_curriculum_iteration_{iteration}").exists()
 
 
+
+
 def ppo_output_exists(iteration: int) -> bool:
     return (PPO_CHECKPOINT_DIR / f"curriculum_iteration_{iteration}").exists()
+
+
 
 
 def log_disk_usage() -> None:
@@ -291,7 +313,8 @@ def run_post_processing(i: int, structural_classes_remove: list = None, maxDista
 
 
 def run_reward_model_training(i: int) -> None:
-    dataset = f"data/Synthetic_preference_data/curriculum_iteration_{i}/curriculum_iteration_{i}_merged_balanced_generated_preference_data.csv"
+    dataset = f"data/Synthetic_preference_data/curriculum_iteration_{i}/curriculum_iteration_{i}_merged_balanced_generated_preference_data.csv";
+    
     output  = f"reward_models/reward_model_curriculum_iteration_{i}"
 
     if i > 0 and reward_model_exists(i - 1):
@@ -330,7 +353,9 @@ def run_ppo(i: int, policy_model: str, is_base: bool, dataset_path: str) -> None
         "--rollout_batch_size", str(ROLLOUT_BATCH_SIZE),
         "--dataset_path",str(dataset_path),
     ];
-    
+
+    ## In case of instability or model collapse in iterations >= 1, reference_model_dir can be turned into the pretrained base-model
+
     extra = (["--fully_initialize_policy", "True"]
              if is_base else
              # ["--fully_initialize_policy", "False", "--resume_dir", policy_model, "--reference_model_dir",""])
@@ -346,7 +371,7 @@ def run_ppo(i: int, policy_model: str, is_base: bool, dataset_path: str) -> None
 def run_evaluation(i: int, policy_model: str, is_base: bool, reward_model_path: str = None,greedy: bool = True, BoN : bool = 1, scheduling_type = "balanced") -> None:
     use_base_flag = "True" if is_base else "False"
     greedy_flag = "True" if greedy else "False"
-    for dataset_type in ("IFEval","humaneval","alpaca"):
+    for dataset_type in ("humaneval","IFEval","alpaca"):
         print(f"We are now evaluating on {dataset_type}");
         out_file = (f"Evaluations/Generations/curriculum_iteration_{i}_"
                     f"{dataset_type}_eval_generations_{Path(policy_model).name}_{'greedy' if greedy else 'BoN = ' + str(BoN)}_len256_{scheduling_type}.jsonl")
@@ -397,24 +422,28 @@ def main():
     logger.info(f"Starting curriculum loop — iterations {start_iter} to {MAX_ITERS - 1}")
     log_disk_usage()
 
-    start_iter = 4;
+    start_iter = 0;
     
     for i in range(start_iter, MAX_ITERS):
         
-        logger = setup_logging(i)
+        logger = setup_logging(i);
+        
         logger.info(f"========== ITERATION {i} ==========")
 
         check_shutdown()
 
-        # policy_model_path = get_latest_checkpoint(i = i-1);
+        policy_model_path = get_latest_checkpoint(i = i-1);
         
         
-        # is_base = (policy_model_path == BASE_MODEL);
-        is_base = False;
+        is_base = (policy_model_path == BASE_MODEL);
+        
+        # is_base = False;
         
         # policy_model = "PPO/Llama3.2-3b-ppo-rulebased-level3_checkpoint350_prose&nonprose/ppo-checkpoint-50";
-        policy_model = "PPO/PPO_Curriculum_Checkpoints/curriculum_iteration_3/ppo-checkpoint-1250";
-        # policy_model = select_curriculum_checkpoint(policy_model_path);
+        
+        # policy_model = "PPO/PPO_Curriculum_Checkpoints/curriculum_iteration_3/ppo-checkpoint-1250";
+
+        policy_model = select_curriculum_checkpoint(policy_model_path);
 
 
         if is_base or policy_model == "base_model":
@@ -426,15 +455,18 @@ def main():
 
         
         weights_dict = decreasing_dominance_weights(current_t = i, T=MAX_ITERS, sigma=0.2);
+        
+        
         print(f"========= Current iteration Structural cues {weights_dict}============ ");
         
         
         if i == 0:
-            maxDistancePositive = 0.4;
+            ## Should be tuned if needed to make a clear main structural contrast (structural presence >> non-presence)
+            maxDistancePositive = 0.5;
             include_categorical_length_difference = False;
             include_absolute_length = False;
             seed = 42
-            max_distance = 0.25
+            max_distance = 0.3;
             activate_all_structural_distribution = False;
             scheduling_type = "balanced";
             demonstration_based = False;
@@ -442,7 +474,7 @@ def main():
         elif i <=2:
             include_categorical_length_difference = True;
             include_absolute_length = False;
-            maxDistancePositive = 0.5;
+            maxDistancePositive = 0.6;
             activate_all_structural_distribution = False
             seed = 42
             max_distance = 0.25
@@ -450,6 +482,7 @@ def main():
             demonstration_based = False;
 
         else:
+            ## activate_all_structural_distribution: To model structural types as a composition of all structures (good for later stages only)
             include_categorical_length_difference = True;
             include_absolute_length = True;
             activate_all_structural_distribution = True
@@ -496,8 +529,6 @@ def main():
         else:
             logger.info(f"[iter{i}/post_processing] already done — skipping")
         check_shutdown();
-
-
         
 
         # ── Step 3: Reward model training ────────────────────────────────
@@ -517,7 +548,7 @@ def main():
 
         output_file = f"data/curriculum_{i}_PPO_scheduled_{scheduling_type}_training_data.json";
         
-        RL_data_creation_PPO.main(scheduling_type = scheduling_type, scheduling_weights = scheduling_weights, output_file = output_file,seed = seed, data_path = f"data/Synthetic_preference_data/curriculum_iteration_{i}/curriculum_iteration_{i}_generated_preference_data.csv",removed_class = "")
+        RL_data_creation_PPO.main(scheduling_type = scheduling_type, scheduling_weights = None, output_file = output_file,seed = seed, data_path = f"data/Synthetic_preference_data/curriculum_iteration_{i}/curriculum_iteration_{i}_generated_preference_data.csv",removed_class = "")
         
 
         if not step_already_done(state, i, "ppo"):
